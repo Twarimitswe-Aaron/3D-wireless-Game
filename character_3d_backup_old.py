@@ -75,6 +75,103 @@ class RealisticCar:
         }
         
         self.is_braking = False
+        
+        # Initialize display lists
+        self.display_lists = {}
+        self.init_display_lists()
+    
+    def init_display_lists(self):
+        # Create display lists for static car parts
+        self.display_lists['body'] = glGenLists(1)
+        glNewList(self.display_lists['body'], GL_COMPILE)
+        self._draw_car_body()
+        glEndList()
+        
+        # Create display list for wheel (without rotation)
+        self.display_lists['wheel'] = glGenLists(1)
+        glNewList(self.display_lists['wheel'], GL_COMPILE)
+        self._draw_wheel_geometry()
+        glEndList()
+    
+    def _draw_car_body(self):
+        """Draw the car body without pushing/popping matrices"""
+        # Main body (lower section)
+        glPushMatrix()
+        glTranslatef(0, self.car_height * 0.25, 0)
+        glScalef(self.car_width/2, self.car_height * 0.5/2, self.car_length/2)
+        self._draw_cube()
+        glPopMatrix()
+        
+        # Cabin (upper section)
+        glPushMatrix()
+        glTranslatef(0, self.car_height * 0.65, -0.3)
+        glScalef(self.car_width * 0.85/2, self.car_height * 0.35/2, self.car_length * 0.3/2)
+        self._draw_cube()
+        glPopMatrix()
+        
+        # Windows and other details...
+        # (Add the rest of the car body details here, but with minimal matrix operations)
+    
+    def _draw_wheel_geometry(self):
+        """Draw a single wheel without position/rotation"""
+        # Draw tire (rubber part)
+        glColor3f(*self.colors['wheels'])
+        quad = gluNewQuadric()
+        gluQuadricNormals(quad, GLU_SMOOTH)
+        gluCylinder(quad, self.wheel_radius, self.wheel_radius, self.wheel_width, 16, 1)
+        
+        # Draw rim (metal part) - slightly smaller
+        glPushMatrix()
+        glTranslatef(0, 0, self.wheel_width * 0.1)
+        glColor3f(*self.colors['rims'])
+        gluCylinder(quad, self.wheel_radius * 0.6, self.wheel_radius * 0.6, 
+                   self.wheel_width * 0.8, 12, 1)
+        glPopMatrix()
+        
+        # Draw spokes
+        for i in range(5):
+            glPushMatrix()
+            glRotatef(i * 72, 0, 0, 1)
+            glTranslatef(0, 0, self.wheel_width * 0.4)
+            glScalef(0.08, self.wheel_radius * 0.5, 0.05)
+            self._draw_cube()
+            glPopMatrix()
+        
+        gluDeleteQuadric(quad)
+    
+    def _draw_cube(self):
+        """Draw a unit cube centered at origin"""
+        glBegin(GL_QUADS)
+        # Front face
+        glNormal3f(0, 0, 1)
+        glVertex3f(-1, -1, 1); glVertex3f(1, -1, 1)
+        glVertex3f(1, 1, 1); glVertex3f(-1, 1, 1)
+        
+        # Back face
+        glNormal3f(0, 0, -1)
+        glVertex3f(-1, -1, -1); glVertex3f(-1, 1, -1)
+        glVertex3f(1, 1, -1); glVertex3f(1, -1, -1)
+        
+        # Top face
+        glNormal3f(0, 1, 0)
+        glVertex3f(-1, 1, -1); glVertex3f(-1, 1, 1)
+        glVertex3f(1, 1, 1); glVertex3f(1, 1, -1)
+        
+        # Bottom face
+        glNormal3f(0, -1, 0)
+        glVertex3f(-1, -1, -1); glVertex3f(1, -1, -1)
+        glVertex3f(1, -1, 1); glVertex3f(-1, -1, 1)
+        
+        # Left face
+        glNormal3f(-1, 0, 0)
+        glVertex3f(-1, -1, -1); glVertex3f(-1, -1, 1)
+        glVertex3f(-1, 1, 1); glVertex3f(-1, 1, -1)
+        
+        # Right face
+        glNormal3f(1, 0, 0)
+        glVertex3f(1, -1, -1); glVertex3f(1, 1, -1)
+        glVertex3f(1, 1, 1); glVertex3f(1, -1, 1)
+        glEnd()
 
     def set_boost(self, boosting):
         """Set boost state"""
@@ -82,6 +179,12 @@ class RealisticCar:
 
     def draw_box(self, width, height, depth, color):
         """Draw a colored box with proper normals for lighting"""
+        # Check matrix stack depth before pushing
+        max_depth = glGetIntegerv(GL_MAX_MODELVIEW_STACK_DEPTH)
+        current_depth = glGetInteger(GL_MODELVIEW_STACK_DEPTH)
+        if current_depth >= max_depth - 5:  # Leave some room
+            print(f"Warning: Matrix stack depth getting high: {current_depth}/{max_depth}")
+            
         glPushMatrix()
         glScalef(width/2, height/2, depth/2)
         
@@ -133,12 +236,14 @@ class RealisticCar:
         glTranslatef(0, 0, height)
         gluDisk(quad, 0, radius, slices, 1)
         glPopMatrix()
+        gluDeleteQuadric(quad)
 
     def draw_sphere(self, radius, slices=20, stacks=20):
         """Draw a sphere"""
         quad = gluNewQuadric()
         gluQuadricNormals(quad, GLU_SMOOTH)
         gluSphere(quad, radius, slices, stacks)
+        gluDeleteQuadric(quad)
 
     def draw_wheel(self, x, z, is_front=True):
         """Draw a realistic wheel with proper rotation"""
@@ -179,8 +284,13 @@ class RealisticCar:
             self.draw_box(1, 1, 1, self.colors['rims'])
             glPopMatrix()
         
+        # Only pop once here since we only pushed once at the start of the wheel rim
         glPopMatrix()
+        
+        # Pop the matrix for the wheel rotation/orientation
         glPopMatrix()
+        
+        # Pop the main wheel matrix
         glPopMatrix()
 
     def draw_car_body(self):
@@ -440,26 +550,53 @@ class RealisticCar:
         self.boost = 1.0
 
     def draw(self):
-        """Draw the complete car"""
+        """Draw the complete car using display lists for better performance"""
         glPushMatrix()
         
         # Apply car position and rotation
         glTranslatef(self.position[0], self.position[1], self.position[2])
         glRotatef(self.rotation[1], 0, 1, 0)
         
-        # Draw car body
-        self.draw_car_body()
+        # Draw car body using display list
+        glCallList(self.display_lists['body'])
         
         # Draw wheels at correct positions
-        # Front wheels (steerable)
         front_z = self.wheelbase / 2
-        self.draw_wheel(self.track_width / 2, front_z, is_front=True)   # Front right
-        self.draw_wheel(-self.track_width / 2, front_z, is_front=True)  # Front left
-        
-        # Rear wheels (fixed)
         rear_z = -self.wheelbase / 2
-        self.draw_wheel(self.track_width / 2, rear_z, is_front=False)   # Rear right
-        self.draw_wheel(-self.track_width / 2, rear_z, is_front=False)  # Rear left
+        
+        # Front right wheel
+        glPushMatrix()
+        glTranslatef(self.track_width / 2, self.wheel_radius - 0.1, front_z)
+        glRotatef(self.steering_angle, 0, 1, 0)
+        glRotatef(self.wheel_rotation, 1, 0, 0)
+        glRotatef(90, 0, 1, 0)  # Orient along X-axis
+        glCallList(self.display_lists['wheel'])
+        glPopMatrix()
+        
+        # Front left wheel
+        glPushMatrix()
+        glTranslatef(-self.track_width / 2, self.wheel_radius - 0.1, front_z)
+        glRotatef(self.steering_angle, 0, 1, 0)
+        glRotatef(self.wheel_rotation, 1, 0, 0)
+        glRotatef(90, 0, 1, 0)  # Orient along X-axis
+        glCallList(self.display_lists['wheel'])
+        glPopMatrix()
+        
+        # Rear right wheel
+        glPushMatrix()
+        glTranslatef(self.track_width / 2, self.wheel_radius - 0.1, rear_z)
+        glRotatef(self.wheel_rotation, 1, 0, 0)
+        glRotatef(90, 0, 1, 0)  # Orient along X-axis
+        glCallList(self.display_lists['wheel'])
+        glPopMatrix()
+        
+        # Rear left wheel
+        glPushMatrix()
+        glTranslatef(-self.track_width / 2, self.wheel_radius - 0.1, rear_z)
+        glRotatef(self.wheel_rotation, 1, 0, 0)
+        glRotatef(90, 0, 1, 0)  # Orient along X-axis
+        glCallList(self.display_lists['wheel'])
+        glPopMatrix()
         
         glPopMatrix()
 
@@ -688,7 +825,35 @@ class RacingGame:
         pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
         pygame.display.set_caption("Realistic 3D Racing - Enhanced Edition")
         
-        # OpenGL setup
+        # Set up the display mode
+        pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL | OPENGLBLIT | HWSURFACE)
+        
+        # OpenGL setup with error checking
+        def check_gl_error(op):
+            err = glGetError()
+            if err != GL_NO_ERROR:
+                error_str = gluErrorString(err)
+                error_str = error_str.decode('utf-8') if isinstance(error_str, bytes) else str(error_str)
+                print(f"OpenGL error in {op}: {error_str}")
+                return False
+            return True
+
+        # Set up the viewport
+        glViewport(0, 0, self.display[0], self.display[1])
+        
+        # Set up projection matrix
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        gluPerspective(70, (self.display[0] / self.display[1]), 0.1, 1000.0)
+        
+        # Switch to modelview and set up initial matrix
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        
+        # Background color - sky blue
+        glClearColor(0.53, 0.81, 0.92, 1.0)
+        
+        # Enable depth testing and other OpenGL features
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_LIGHTING)
         glEnable(GL_LIGHT0)
@@ -696,20 +861,24 @@ class RacingGame:
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
         glShadeModel(GL_SMOOTH)
         
-        # Background color - sky blue
-        glClearColor(0.53, 0.81, 0.92, 1.0)
-        
         # Lighting setup
         glLightfv(GL_LIGHT0, GL_POSITION, (10, 20, 10, 1))
         glLightfv(GL_LIGHT0, GL_AMBIENT, (0.6, 0.6, 0.6, 1))
         glLightfv(GL_LIGHT0, GL_DIFFUSE, (1.0, 1.0, 1.0, 1))
         glLightfv(GL_LIGHT0, GL_SPECULAR, (0.5, 0.5, 0.5, 1))
         
-        # Projection
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        gluPerspective(70, (self.display[0] / self.display[1]), 0.1, 200.0)
-        glMatrixMode(GL_MODELVIEW)
+        # Set up fog for distance
+        glEnable(GL_FOG)
+        glFogi(GL_FOG_MODE, GL_LINEAR)
+        glFogfv(GL_FOG_COLOR, (GLfloat * 4)(0.53, 0.81, 0.92, 1.0))
+        glFogf(GL_FOG_DENSITY, 0.1)
+        glHint(GL_FOG_HINT, GL_DONT_CARE)
+        glFogf(GL_FOG_START, 50.0)
+        glFogf(GL_FOG_END, 300.0)
+        
+        # Check for any OpenGL errors after setup
+        if not check_gl_error("OpenGL initialization"):
+            print("Warning: OpenGL initialization had errors")
         
         # Game objects
         self.car = RealisticCar()
@@ -828,28 +997,6 @@ class RacingGame:
             height = 10.0
             
             cam_x = self.car.position[0] - math.sin(car_rad) * distance
-            cam_y = self.car.position[1] + height
-            cam_z = self.car.position[2] - math.cos(car_rad) * distance
-            
-            gluLookAt(cam_x, cam_y, cam_z,
-                     self.car.position[0], self.car.position[1] + 1, self.car.position[2],
-                     0, 1, 0)
-            
-        elif mode_name == 'orbit':
-            # Orbit camera - circles around car
-            self.orbit_angle = (self.orbit_angle + 0.5) % 360
-            rad = math.radians(self.orbit_angle)
-            
-            distance = 15.0
-            height = 6.0
-            
-            cam_x = self.car.position[0] + math.sin(rad) * distance
-            cam_y = self.car.position[1] + height
-            cam_z = self.car.position[2] + math.cos(rad) * distance
-            
-            gluLookAt(cam_x, cam_y, cam_z,
-                     self.car.position[0], self.car.position[1] + 1, self.car.position[2],
-                     0, 1, 0)
 
     def draw_hud(self):
         """Draw HUD overlay"""
@@ -1017,18 +1164,41 @@ class RacingGame:
             # Update physics
             self.car.update()
             
-            # Render
+            # Clear the screen and depth buffer
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             
-            # Set camera
+            # Set up the viewport
+            glViewport(0, 0, self.display[0], self.display[1])
+            
+            # Set up projection matrix
+            glMatrixMode(GL_PROJECTION)
+            glLoadIdentity()
+            gluPerspective(70, (self.display[0] / self.display[1]), 0.1, 1000.0)
+            
+            # Set up modelview matrix
+            glMatrixMode(GL_MODELVIEW)
+            glLoadIdentity()
+            
+            # Update camera position
             self.update_camera()
             
-            # Draw scene
+            # Enable depth testing and lighting
+            glEnable(GL_DEPTH_TEST)
+            glEnable(GL_LIGHTING)
+            glEnable(GL_LIGHT0)
+            
+            # Draw the scene
             self.road.draw(self.car.position)
             self.car.draw()
             
+            # Disable lighting for HUD
+            glDisable(GL_LIGHTING)
+            
             # Draw HUD
             self.draw_hud()
+            
+            # Re-enable lighting for next frame
+            glEnable(GL_LIGHTING)
             
             pygame.display.flip()
             self.clock.tick(60)

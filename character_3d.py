@@ -189,18 +189,38 @@ class MercedesCar:
 class DrivingGame:
     def __init__(self):
         pygame.init()
-        display = (1000, 700)
-        pygame.display.set_mode(display, DOUBLEBUF | OPENGL)
+        self.display = (1000, 700)
+        pygame.display.set_mode(self.display, DOUBLEBUF | OPENGL)
         pygame.display.set_caption("🚗 Mercedes-Benz Driving Game")
 
-        gluPerspective(60, display[0] / display[1], 0.1, 1000.0)
-        glTranslatef(0, -1, -15)
+        # Set up the projection matrix
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        gluPerspective(45, (self.display[0]/self.display[1]), 0.1, 1000.0)
+        
+        # Switch to modelview matrix
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        
+        # Set up the camera
+        self.camera_distance = 10.0
+        self.camera_height = 3.0
+        self.camera_angle = 0.0
+        
+        # Enable depth testing and lighting
         glEnable(GL_DEPTH_TEST)
-
         glEnable(GL_LIGHTING)
         glEnable(GL_LIGHT0)
         glLightfv(GL_LIGHT0, GL_POSITION, (5, 10, 5, 1))
         glLightfv(GL_LIGHT0, GL_DIFFUSE, (1, 1, 1, 1))
+        glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1))
+        
+        # Enable color material for proper lighting on colored objects
+        glEnable(GL_COLOR_MATERIAL)
+        glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
+        
+        # Set a nice background color (sky blue)
+        glClearColor(0.53, 0.81, 0.92, 1.0)
 
         self.car = MercedesCar()
         self.bluetooth = BluetoothReceiver()
@@ -281,9 +301,32 @@ class DrivingGame:
 
             self.car.update()
 
+            # Clear the screen and depth buffer
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            
+            # Reset the modelview matrix
+            glLoadIdentity()
+            
+            # Position the camera behind and above the car
+            camera_x = self.car.position[0] - math.sin(math.radians(self.car.angle)) * self.camera_distance
+            camera_z = self.car.position[2] - math.cos(math.radians(self.car.angle)) * self.camera_distance
+            camera_y = self.car.position[1] + self.camera_height
+            
+            # Look at a point in front of the car
+            look_x = self.car.position[0] + math.sin(math.radians(self.car.angle))
+            look_z = self.car.position[2] + math.cos(math.radians(self.car.angle))
+            look_y = self.car.position[1] + 1.0
+            
+            # Apply the camera transformation
+            gluLookAt(camera_x, camera_y, camera_z,
+                     look_x, look_y, look_z,
+                     0, 1, 0)
+            
+            # Draw the scene
             self.draw_road()
             self.car.draw()
+            
+            # Update the display
             pygame.display.flip()
             self.clock.tick(60)
 
